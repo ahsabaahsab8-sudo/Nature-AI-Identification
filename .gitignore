@@ -1,0 +1,24 @@
+﻿# Python
+__pycache__/
+*.py[cod]
+*.class
+*.so
+.Python
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv/
+
+# Cache & Downloads
+.cache/
+models_cache/
+*.incomplete
+
+# IDE
+.idea/
+.vscode/
+
+# Local test scratch
+test_download.py
