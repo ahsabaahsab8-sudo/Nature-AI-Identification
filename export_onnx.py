@@ -57,6 +57,7 @@ def export():
     quantize_dynamic(
         model_input=onnx_fp32,
         model_output=onnx_int8,
+        op_types_to_quantize=["MatMul", "Gemm"],
         weight_type=QuantType.QInt8,
         per_channel=True,
         reduce_range=True
