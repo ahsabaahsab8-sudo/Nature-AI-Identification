@@ -1,25 +1,40 @@
-﻿import time
+import os
+import time
 from contextlib import asynccontextmanager
 from typing import Optional
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from app.classifier import get_engine
 from app import config
+
+base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+int8_model = os.path.join(base_dir, "models", "bioclip_visual_int8.onnx")
+fp32_model = os.path.join(base_dir, "models", "bioclip_visual_fp32.onnx")
+USE_ONNX = os.path.exists(int8_model) or os.path.exists(fp32_model)
+
+if USE_ONNX:
+    from app.onnx_classifier import get_onnx_engine
+    def get_active_engine():
+        return get_onnx_engine()
+else:
+    from app.classifier import get_engine
+    def get_active_engine():
+        return get_engine(device=config.MODEL_DEVICE)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print('[Startup] Pre-loading BioCLIP TreeOfLife model...')
-    get_engine(device=config.MODEL_DEVICE)
-    print('[Startup] BioCLIP engine ready for inference.')
+    mode = "ONNX INT8 (Ultra-Low RAM ~200MB)" if USE_ONNX else f"PyTorch ({config.MODEL_DEVICE})"
+    print(f"[Startup] Pre-loading BioCLIP TreeOfLife engine in {mode} mode...")
+    get_active_engine()
+    print("[Startup] BioCLIP engine ready for inference.")
     yield
-    print('[Shutdown] Service shutting down.')
+    print("[Shutdown] Service shutting down.")
 
 app = FastAPI(
     title='Nature AI - BioCLIP Species Identification API',
     description='Production-grade self-hosted biological identification API using BioCLIP / iNaturalist Tree of Life.',
-    version='1.0.0',
+    version='2.0.0',
     lifespan=lifespan
 )
 
@@ -36,7 +51,8 @@ def root():
     return {
         'status': 'online',
         'service': 'Nature AI BioCLIP Species Identification Engine',
-        'version': '1.0.0',
+        'version': '2.0.0',
+        'engine': 'ONNX INT8' if USE_ONNX else 'PyTorch',
         'endpoints': {
             'identify': '/v1/identify (POST multipart/form-data)',
             'health': '/health (GET)'
@@ -45,7 +61,11 @@ def root():
 
 @app.get('/health')
 def health():
-    return {'status': 'healthy', 'device': config.MODEL_DEVICE}
+    return {
+        'status': 'healthy',
+        'engine': 'ONNX INT8' if USE_ONNX else 'PyTorch',
+        'device': 'cpu' if USE_ONNX else config.MODEL_DEVICE
+    }
 
 @app.post('/v1/identify')
 async def identify(
@@ -58,7 +78,7 @@ async def identify(
         if not contents:
             raise HTTPException(status_code=400, detail='Empty image file provided')
 
-        engine = get_engine(device=config.MODEL_DEVICE)
+        engine = get_active_engine()
         predictions = engine.predict(contents, k=5)
         inference_time_ms = round((time.time() - t0) * 1000, 2)
 
